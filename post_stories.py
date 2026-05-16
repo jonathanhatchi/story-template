@@ -35,10 +35,15 @@ def get_ig_token():
     return json.loads(decrypt(dict(zip(cols, row))["data"]))["accessToken"]
 
 
-def post_ig_story(token, image_url):
-    r = requests.post(f"{API}/{IG_USER_ID}/media", params={
-        "access_token": token, "media_type": "STORIES", "image_url": image_url,
-    }, timeout=30)
+def post_ig_story(token, image_url, link=None):
+    params = {
+        "access_token": token,
+        "media_type": "STORIES",
+        "image_url": image_url,
+    }
+    if link:
+        params["link"] = link
+    r = requests.post(f"{API}/{IG_USER_ID}/media", params=params, timeout=30)
     if r.status_code != 200:
         return False, r.text[:200]
     creation_id = r.json().get("id")
@@ -66,15 +71,26 @@ def post_fb_story(image_path):
     return r2.status_code == 200, r2.json()
 
 
-def publish_stories(stories_texts, instagram=True, facebook=True):
+def publish_stories(stories, instagram=True, facebook=True):
     """
-    stories_texts : liste de strings, une par story.
+    stories : liste de strings OU liste de dicts {"text": "...", "link": "https://..."}
+              Le lien est optionnel — s'il est absent, story sans lien cliquable.
     """
     token = get_ig_token()
     ig_ok = fb_ok = 0
 
-    for i, text in enumerate(stories_texts, 1):
-        print(f"\n--- Story {i}/{len(stories_texts)} ---")
+    for i, item in enumerate(stories, 1):
+        # Accepte string simple ou dict {"text": ..., "link": ...}
+        if isinstance(item, str):
+            text = item
+            link = None
+        else:
+            text = item["text"]
+            link = item.get("link")
+
+        print(f"\n--- Story {i}/{len(stories)} ---")
+        if link:
+            print(f"  Lien: {link}")
 
         # Générer l'image
         filename = f"story_{int(time.time())}_{i}.jpg"
@@ -84,7 +100,7 @@ def publish_stories(stories_texts, instagram=True, facebook=True):
         print(f"  Image: {filename}")
 
         if instagram:
-            ok, res = post_ig_story(token, img_url)
+            ok, res = post_ig_story(token, img_url, link=link)
             print(f"  IG: {'OK' if ok else 'ECHEC — ' + str(res)}")
             if ok: ig_ok += 1
 
@@ -95,7 +111,7 @@ def publish_stories(stories_texts, instagram=True, facebook=True):
 
         time.sleep(3)
 
-    print(f"\nRésultat — IG: {ig_ok}/{len(stories_texts)} · FB: {fb_ok}/{len(stories_texts)}")
+    print(f"\nRésultat — IG: {ig_ok}/{len(stories)} · FB: {fb_ok}/{len(stories)}")
     return ig_ok, fb_ok
 
 
