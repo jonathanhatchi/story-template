@@ -88,32 +88,40 @@ def post_fb_story(image_path):
                            files={"source": f}, timeout=60)
     return r2.status_code == 200, r2.json()
 
+# ── Facebook Post (texte + image) ────────────────────────────────────────────
+def post_fb_post(text, image_path):
+    """Post classique sur la page Facebook avec image et texte."""
+    with open(image_path, "rb") as f:
+        r = requests.post(f"{API}/{PAGE_ID}/photos",
+                          params={"access_token": FB_TOKEN, "caption": text, "published": "true"},
+                          files={"source": f}, timeout=60)
+    return r.status_code == 200, r.json()
+
+def create_fb_image(title_line1, title_line2, subtitle, out_path):
+    """Image Facebook post 1200x630 — même style que LinkedIn."""
+    W, H = 1200, 630
+    return _create_promo_image(W, H, title_line1, title_line2, subtitle, out_path)
+
 # ── LinkedIn image + texte ───────────────────────────────────────────────────
-def create_linkedin_image(title_line1, title_line2, subtitle, out_path):
-    W, H = 1200, 627
+def _create_promo_image(W, H, title_line1, title_line2, subtitle, out_path):
+    """Image promo partagée LinkedIn + Facebook."""
     FONT_TITLE = "/opt/story-template/fonts/caveat2.ttf"
     FONT_BODY  = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     FONT_BOLD  = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-
     img  = Image.new("RGB", (W, H), "#050510")
     draw = ImageDraw.Draw(img)
-    # Dégradé
     for i in range(H//2, 0, -8):
         a = int(25 * (1 - i/(H//2)))
         draw.ellipse([W-i, H-i, W, H], fill=f"#6D28D9{a:02x}")
     draw.rectangle([0, 0, W, 4], fill="#8B5CF6")
-    # Badge
     bf = ImageFont.truetype(FONT_BOLD, 16)
     draw.rounded_rectangle([40, 24, 248, 48], radius=20, fill="#8B5CF6")
     draw.text((50, 28), "🤖 AGENT IA AUTONOME", font=bf, fill="#FFFFFF")
-    # Titre
     tf = ImageFont.truetype(FONT_TITLE, 68)
     draw.text((40, H//2 - 90), title_line1, font=tf, fill="#FFFFFF")
     draw.text((40, H//2 - 90 + 80), title_line2, font=tf, fill="#FFFFFF")
-    # Sous-titre
     sf = ImageFont.truetype(FONT_BODY, 20)
     draw.text((40, H - 80), subtitle, font=sf, fill="#94A3B8")
-    # Orbe
     cx, cy, r = W - 120, H//2, 75
     for g in range(5, 0, -1):
         a = 8 * (6-g)
@@ -122,6 +130,9 @@ def create_linkedin_image(title_line1, title_line2, subtitle, out_path):
     draw.ellipse([cx-r//3, cy-r//2, cx, cy-r//4], fill="#FFFFFF22")
     img.save(out_path, "JPEG", quality=95)
     return out_path
+
+def create_linkedin_image(title_line1, title_line2, subtitle, out_path):
+    return _create_promo_image(1200, 627, title_line1, title_line2, subtitle, out_path)
 
 def post_linkedin(text, image_path=None):
     from linkedin_poster import post_text_linkedin, _load_token, _auth_header, _member_urn
@@ -179,45 +190,57 @@ def story_image_to_video(image_path, out_path, duration=5):
     return out_path
 
 # ── MAIN : publier un email de lancement ─────────────────────────────────────
-def publish_launch_email(email_num, story_texts, linkedin_text,
-                         linkedin_title1, linkedin_title2, linkedin_subtitle,
+def publish_launch_email(email_num, story_texts, fb_post_text, linkedin_text,
+                         title_line1, title_line2, subtitle,
                          has_link=False):
     """
-    email_num     : numéro de l'email (int) — détermine si on met des liens UTM
-    story_texts   : liste de strings pour les stories IG/FB
+    email_num     : numéro de l'email (int)
+    story_texts   : liste de strings pour les stories IG + FB
+    fb_post_text  : texte du post Facebook classique (adapté, plus long)
     linkedin_text : texte adapté LinkedIn
-    has_link      : True à partir de l'email 4 (ouverture du panier)
+    title_line1/2 : titre sur 2 lignes pour les images FB + LinkedIn
+    subtitle      : sous-titre image
+    has_link      : True à partir de l'email 4 (ouverture panier)
     """
     print(f"\n{'='*50}")
     print(f"PUBLICATION — Email {email_num}")
     print('='*50)
 
-    link_ig  = utm("instagram", "story", email_num) if has_link else None
-    link_fb  = utm("facebook", "story", email_num) if has_link else None
-    link_li  = utm("linkedin", "post", email_num) if has_link else None
-    link_tt  = utm("tiktok", "video", email_num) if has_link else None
+    link_ig      = utm("instagram",  "story",     email_num) if has_link else None
+    link_fb_st   = utm("facebook",   "story",     email_num) if has_link else None
+    link_fb_post = utm("facebook",   "post",      email_num) if has_link else None
+    link_li      = utm("linkedin",   "post",      email_num) if has_link else None
+    link_tt      = utm("tiktok",     "video",     email_num) if has_link else None
 
     ig_token = get_ig_token()
     ts = int(time.time())
-
     results = {}
 
-    # ── Instagram + Facebook Stories ─────────────────────────────────────────
+    # ── Instagram Stories + Facebook Stories ─────────────────────────────────
     for i, text in enumerate(story_texts, 1):
         filename = f"launch_e{email_num}_s{i}_{ts}.jpg"
         img_path = os.path.join(UPLOADS_DIR, filename)
         create_story(text, out_path=img_path)
         img_url  = f"{BASE_URL}/{filename}"
-
         ok_ig, _ = post_ig_story(ig_token, img_url, link=link_ig)
         ok_fb, _ = post_fb_story(img_path)
-        print(f"  Story {i} — IG: {'✅' if ok_ig else '❌'} · FB: {'✅' if ok_fb else '❌'}")
+        print(f"  Story {i} — IG: {'✅' if ok_ig else '❌'} · FB Story: {'✅' if ok_fb else '❌'}")
         results[f"story_{i}"] = {"ig": ok_ig, "fb": ok_fb}
         time.sleep(3)
 
+    # ── Facebook Post classique (texte + image) ───────────────────────────────
+    fb_img_path = os.path.join(UPLOADS_DIR, f"launch_fb_e{email_num}_{ts}.jpg")
+    create_fb_image(title_line1, title_line2, subtitle, fb_img_path)
+    fb_text = fb_post_text
+    if has_link:
+        fb_text += f"\n\n👉 {link_fb_post}"
+    ok_fb_post, _ = post_fb_post(fb_text, fb_img_path)
+    print(f"  Facebook Post: {'✅' if ok_fb_post else '❌'}")
+    results["fb_post"] = ok_fb_post
+
     # ── LinkedIn ──────────────────────────────────────────────────────────────
     li_img_path = os.path.join(UPLOADS_DIR, f"launch_li_e{email_num}_{ts}.jpg")
-    create_linkedin_image(linkedin_title1, linkedin_title2, linkedin_subtitle, li_img_path)
+    create_linkedin_image(title_line1, title_line2, subtitle, li_img_path)
     li_text = linkedin_text
     if has_link:
         li_text += f"\n\n👉 {link_li}"
@@ -226,7 +249,6 @@ def publish_launch_email(email_num, story_texts, linkedin_text,
     results["linkedin"] = ok_li
 
     # ── TikTok via Buffer ─────────────────────────────────────────────────────
-    # Utilise la 1ère story image convertie en vidéo
     first_img = os.path.join(UPLOADS_DIR, f"launch_e{email_num}_s1_{ts}.jpg")
     tt_video  = os.path.join(UPLOADS_DIR, f"launch_tt_e{email_num}_{ts}.mp4")
     story_image_to_video(first_img, tt_video)
@@ -237,13 +259,16 @@ def publish_launch_email(email_num, story_texts, linkedin_text,
     results["tiktok"] = ok_tt
 
     # ── Telegram recap ────────────────────────────────────────────────────────
-    recap = f"✅ Email {email_num} publié !\n"
-    recap += f"Instagram: {'✅' if results.get('story_1',{}).get('ig') else '❌'}\n"
-    recap += f"Facebook: {'✅' if results.get('story_1',{}).get('fb') else '❌'}\n"
-    recap += f"LinkedIn: {'✅' if results.get('linkedin') else '❌'}\n"
-    recap += f"TikTok: {'✅' if results.get('tiktok') else '❌'}\n"
+    recap  = f"✅ Email {email_num} publié !\n\n"
+    recap += f"📸 IG Story:      {'✅' if results.get('story_1',{}).get('ig') else '❌'}\n"
+    recap += f"📘 FB Story:      {'✅' if results.get('story_1',{}).get('fb') else '❌'}\n"
+    recap += f"📘 FB Post:       {'✅' if results.get('fb_post') else '❌'}\n"
+    recap += f"💼 LinkedIn:      {'✅' if results.get('linkedin') else '❌'}\n"
+    recap += f"🎵 TikTok:        {'✅' if results.get('tiktok') else '❌'}\n"
     if not has_link:
-        recap += "\n(Pas de lien UTM — email de contenu)"
+        recap += "\n(Emails contenu — pas encore de liens UTM)"
+    else:
+        recap += f"\n🔗 UTMs actifs — campagne : {CAMPAIGN}"
     tg_send(recap)
 
     return results
@@ -256,9 +281,10 @@ if __name__ == "__main__":
         story_texts=[
             "La plupart des gens utilisent l'IA comme un simple chatbot.\n\nIls passent à côté de l'essentiel.",
         ],
+        fb_post_text="La plupart des gens utilisent encore ChatGPT comme un simple chatbot.\n\nAlors qu'aujourd'hui, on peut construire de vrais systèmes autonomes qui travaillent 24h/24.\n\nC'est exactement ce que j'ai construit ces derniers mois. Et c'est ce que je vais t'apprendre.",
         linkedin_text="La plupart des gens utilisent encore ChatGPT comme un simple chatbot.\n\nAlors qu'on peut construire de vrais systèmes autonomes qui travaillent 24h/24.\n\nC'est exactement ce que j'ai fait ces derniers mois.",
-        linkedin_title1="L'IA, c'est pas",
-        linkedin_title2="juste ChatGPT.",
-        linkedin_subtitle="Construis un vrai système autonome.",
+        title_line1="L'IA, c'est pas",
+        title_line2="juste ChatGPT.",
+        subtitle="Construis un vrai système autonome.",
         has_link=False,
     )
